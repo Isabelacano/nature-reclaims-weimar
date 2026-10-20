@@ -1,0 +1,116 @@
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f6f4ef;
+  color: #1c1c1c;
+}
+
+.app {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+.loading {
+  margin: 20vh auto 0;
+  text-align: center;
+}
+
+.timeline {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  font-size: 13px;
+  line-height: 1.45;
+  top: 12px;
+  left: 12px;
+  width: 340px;
+  max-width: calc(100% - 24px);
+  padding: 12px 16px 10px;
+  box-sizing: border-box;
+}
+
+.project-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: #2f3a2c;
+}
+
+.subtitle {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #6b6b66;
+}
+
+.timeline-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.year {
+  font-size: 22px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: #3b5f34;
+  white-space: nowrap;
+}
+
+.stage-title {
+  font-weight: 600;
+}
+
+.timeline input[type='range'] {
+  width: 100%;
+  margin: 10px 0 2px;
+  accent-color: #5d8a4c;
+}
+
+.ticks {
+  display: flex;
+  justify-content: space-between;
+}
+
+.ticks button {
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 12px;
+  color: #777;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticks button.on {
+  color: #3b5f34;
+  font-weight: 650;
+}
+
+.caption {
+  margin: 6px 0 0;
+  color: #555;
+  min-height: 2.9em;
+}
+
+.attribution {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #444;
+  background: rgba(255, 255, 255, 0.85);
+}
+
