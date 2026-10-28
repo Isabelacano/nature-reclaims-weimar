@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
+import { useMemo } from 'react'
+import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { FACADE, REACH_COLORS, SHOP_USES, STONE_USES } from './palette.js'
-import { NatureGround, StreetSurface, TimeDriver, Trees, VegetationMass, Wild, decayBuildings, makeNatureUniforms } from './Nature.jsx'
-import { BACKGROUND } from './palette.js'
+import { FACADE, SHOP_USES, STONE_USES } from './palette.js'
+import { NatureGround, StreetSurface, Upheaval, VegetationMass, Wild, decayBuildings, makeNatureUniforms } from './Nature.jsx'
+import { CityTrees, ConsumingRoots, DiversionRoots, FacadeGrowth, Giants, Growth } from './Trees.jsx'
+import { buildingSeed } from './nature.js'
+import Environment from './Environment.jsx'
+import EntityDriver from './entity/EntityDriver.jsx'
 
 // Coordinates: x is metres east, the scene's -z is metres north, y is up.
 
@@ -42,8 +45,8 @@ function wallCoordinates(position) {
 const pick = (list, r) => list[Math.floor(r * list.length) % list.length]
 
 // All buildings in one mesh, each extruded from its footprint to its height.
-function Buildings({ buildings, tier, meshRef, uniforms }) {
-  const { geometry, ranges, baseColors } = useMemo(() => {
+function Buildings({ buildings, uniforms }) {
+  const geometry = useMemo(() => {
     const parts = []
     const ranges = []
     let start = 0
@@ -59,54 +62,36 @@ function Buildings({ buildings, tier, meshRef, uniforms }) {
     const geometry = mergeGeometries(parts)
     parts.forEach((g) => g.dispose())
     geometry.rotateX(-Math.PI / 2) // footprint plane onto the ground, height upwards
-    geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(start * 3), 3))
-    // Per building, for the decay effects: a random number that picks which buildings get
-    // overgrown, its height, and whether the walking reach currently highlights it.
+    // Per building: a random number that decides how it has aged, its height, floors,
+    // shop ground floor, roof colour and plaster tone, and where each vertex sits on its wall.
     const seed = new Float32Array(start)
     const top = new Float32Array(start)
-    buildings.forEach((b, i) => {
-      const [s, n] = ranges[i]
-      seed.fill(Math.abs(Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1, s, s + n)
-      top.fill(b.height, s, s + n)
-    })
-    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1))
-    geometry.setAttribute('aTop', new THREE.BufferAttribute(top, 1))
-    geometry.setAttribute('aHl', new THREE.BufferAttribute(new Float32Array(start), 1))
-    // Facades: floors, shop ground floors, roof colour, and where each vertex sits on its wall.
     const floors = new Float32Array(start)
     const shop = new Float32Array(start)
     const roof = new Float32Array(start * 3)
+    const colors = new Float32Array(start * 3)
     const tone = new THREE.Color()
     buildings.forEach((b, i) => {
       const [s, n] = ranges[i]
+      const r = buildingSeed(i)
+      seed.fill(r, s, s + n)
+      top.fill(b.height, s, s + n)
       floors.fill(b.floors, s, s + n)
       shop.fill(SHOP_USES.includes(b.use) ? 1 : 0, s, s + n)
-      tone.set(pick(FACADE.roofs, (seed[s] * 7.31) % 1))
+      tone.set(pick(FACADE.roofs, (r * 7.31) % 1))
       for (let v = s; v < s + n; v++) tone.toArray(roof, v * 3)
+      tone.set(pick(STONE_USES.includes(b.use) ? FACADE.stone : FACADE.plaster, r))
+      for (let v = s; v < s + n; v++) tone.toArray(colors, v * 3)
     })
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1))
+    geometry.setAttribute('aTop', new THREE.BufferAttribute(top, 1))
     geometry.setAttribute('aFloors', new THREE.BufferAttribute(floors, 1))
     geometry.setAttribute('aShop', new THREE.BufferAttribute(shop, 1))
     geometry.setAttribute('aRoofColor', new THREE.BufferAttribute(roof, 3))
     geometry.setAttribute('aSeg', new THREE.BufferAttribute(wallCoordinates(geometry.attributes.position), 2))
-    const c = new THREE.Color()
-    const baseColors = buildings.map((b, i) => c.set(pick(STONE_USES.includes(b.use) ? FACADE.stone : FACADE.plaster, seed[ranges[i][0]])).toArray())
-    return { geometry, ranges, baseColors }
+    return geometry
   }, [buildings])
-
-  // Paint each building in its plaster tone, or in the shade of the smallest walking-reach area it touches.
-  useEffect(() => {
-    const colors = geometry.attributes.color.array
-    const highlight = geometry.attributes.aHl.array
-    const shades = REACH_COLORS.map((h) => new THREE.Color(h).toArray())
-    ranges.forEach(([start, count], i) => {
-      const reached = tier && tier[i] >= 0
-      const rgb = reached ? shades[tier[i]] : baseColors[i]
-      for (let v = start; v < start + count; v++) colors.set(rgb, v * 3)
-      highlight.fill(reached ? 1 : 0, start, start + count)
-    })
-    geometry.attributes.color.needsUpdate = true
-    geometry.attributes.aHl.needsUpdate = true
-  }, [geometry, ranges, baseColors, tier])
 
   const material = useMemo(() => {
     const m = new THREE.MeshLambertMaterial({ vertexColors: true })
@@ -114,97 +99,39 @@ function Buildings({ buildings, tier, meshRef, uniforms }) {
     return m
   }, [uniforms])
 
-  return <mesh ref={meshRef} geometry={geometry} material={material} />
+  return <mesh geometry={geometry} material={material} castShadow receiveShadow />
 }
 
-// The timeline drives the shaders directly; only the trees need React to redraw.
-function Nature({ nature, stage, uniforms }) {
-  const [params, setParams] = useState(null)
-  return (
-    <>
-      <TimeDriver stage={stage} thresholds={nature.thresholds} uniforms={uniforms} onChange={setParams} />
-      <VegetationMass nature={nature} uniforms={uniforms} />
-      <Trees nature={nature} params={params} />
-      <Wild nature={nature} params={params} uniforms={uniforms} />
-    </>
-  )
-}
+const MARGIN_M = 200 // the city's ground plane runs this far past the modelled area
 
-// One flat shape per area. They don't write depth, so drawn 15 → 10 → 5 the smaller sits on top.
-function ReachArea({ polygons, color, order }) {
-  const geometry = useMemo(() => {
-    const shapes = polygons.map((p) => {
-      const s = new THREE.Shape(p.outer.map(([x, y]) => new THREE.Vector2(x, y)))
-      s.holes = p.holes.map((h) => new THREE.Path(h.map(([x, y]) => new THREE.Vector2(x, y))))
-      return s
-    })
-    const g = new THREE.ShapeGeometry(shapes)
-    g.rotateX(-Math.PI / 2)
-    return g
-  }, [polygons])
-  useEffect(() => () => geometry.dispose(), [geometry])
-  return (
-    <mesh geometry={geometry} position-y={0.05} renderOrder={order}>
-      <meshBasicMaterial color={color} depthWrite={false} />
-    </mesh>
-  )
-}
-
-// A click (not a drag) on a building or the ground reports the spot in metres east and north.
-function ClickPicker({ targets, onPick }) {
-  const { camera, gl } = useThree()
-  useEffect(() => {
-    const el = gl.domElement
-    const raycaster = new THREE.Raycaster()
-    let down = null
-    const onDown = (e) => (down = e.button === 0 ? [e.clientX, e.clientY] : null)
-    const onUp = (e) => {
-      if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return
-      down = null
-      const r = el.getBoundingClientRect()
-      const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
-      raycaster.setFromCamera(ndc, camera)
-      const hit = raycaster.intersectObjects(targets.map((t) => t.current).filter(Boolean), false)[0]
-      if (hit) onPick([hit.point.x, -hit.point.z])
-    }
-    el.addEventListener('pointerdown', onDown)
-    el.addEventListener('pointerup', onUp)
-    return () => {
-      el.removeEventListener('pointerdown', onDown)
-      el.removeEventListener('pointerup', onUp)
-    }
-  }, [camera, gl, targets, onPick])
-  return null
-}
-
-export default function City({ data, nature, size, reach, onPick, stage }) {
-  const uniforms = useMemo(makeNatureUniforms, [])
-  const buildingsRef = useRef()
-  const groundRef = useRef()
-  const targets = useMemo(() => [buildingsRef, groundRef], [])
-  const start = reach && !reach.tooFar ? reach.start : null
+export default function City({ data, nature }) {
+  const uniforms = useMemo(() => makeNatureUniforms(nature.threshold), [nature])
+  // Shared handles between the scene's parts and the entity (the growth pool, the diversion roots).
+  const world = useMemo(() => ({}), [])
+  const blocked = useMemo(() => (x, y) => nature.buildingAt(x, y) >= 0 || nature.buildingAt(x + 8, y) >= 0 || nature.buildingAt(x, y + 8) >= 0, [nature])
+  const { kit, hole } = useMemo(() => {
+    const { x0, y0, W, H, cell } = nature.grid
+    const kit = [x0, y0, x0 + W * cell, y0 + H * cell]
+    return { kit, hole: [kit[0] - MARGIN_M, kit[1] - MARGIN_M, kit[2] + MARGIN_M, kit[3] + MARGIN_M] }
+  }, [nature])
 
   return (
-    <Canvas camera={{ position: [-500, 1500, 1700], fov: 40, near: 5, far: 20000 }} dpr={[1, 2]}>
-      <color attach="background" args={[BACKGROUND]} />
-      <ambientLight intensity={1.6} />
-      <directionalLight position={[-600, 1200, 400]} intensity={1.6} />
-      <NatureGround size={size} nature={nature} uniforms={uniforms} meshRef={groundRef} />
-      {reach?.areas &&
-        [...reach.areas].reverse().map((a, k) => (
-          <ReachArea key={a.minutes} polygons={a.polygons} color={REACH_COLORS[reach.areas.length - 1 - k]} order={1 + k} />
-        ))}
+    <Canvas shadows="percentage" camera={{ position: [-760, 470, 1180], fov: 42, near: 5, far: 30000 }} dpr={[1, 1.75]}>
+      <Environment kit={kit} hole={hole} blocked={blocked} />
+      <NatureGround nature={nature} uniforms={uniforms} rect={hole} />
       <StreetSurface edges={data.edges} nature={nature} uniforms={uniforms} />
-      <Buildings buildings={data.buildings} tier={reach?.tier} meshRef={buildingsRef} uniforms={uniforms} />
-      <Nature nature={nature} stage={stage} uniforms={uniforms} />
-      {start && (
-        <mesh position={[start[0], 20, -start[1]]}>
-          <cylinderGeometry args={[5, 5, 40, 24]} />
-          <meshLambertMaterial color="#1b2f55" />
-        </mesh>
-      )}
-      <OrbitControls makeDefault target={[0, 0, 0]} maxPolarAngle={Math.PI / 2.1} minDistance={80} maxDistance={6000} />
-      {onPick && <ClickPicker targets={targets} onPick={onPick} />}
+      <Buildings buildings={data.buildings} uniforms={uniforms} />
+      <VegetationMass nature={nature} uniforms={uniforms} />
+      <CityTrees nature={nature} />
+      <Giants giants={nature.giants} />
+      <Wild nature={nature} uniforms={uniforms} />
+      <FacadeGrowth buildings={data.buildings} />
+      <Growth world={world} />
+      <DiversionRoots world={world} buildings={data.buildings} />
+      <ConsumingRoots world={world} buildings={data.buildings} />
+      <Upheaval world={world} />
+      <OrbitControls makeDefault enableDamping dampingFactor={0.08} target={[0, 0, 80]} maxPolarAngle={Math.PI / 2.12} minDistance={40} maxDistance={4200} />
+      <EntityDriver data={data} nature={nature} world={world} kit={kit} />
     </Canvas>
   )
 }

@@ -1,3 +1,20 @@
+/* A field instrument for studying an unknown living system: dark moss glass, fine rules,
+   a serif title, small mono labels. One accent, lichen green, turning ochre when the city is sure. */
+
+:root {
+  --ink: #e4e6da;
+  --ink-soft: #b3b8a6;
+  --ink-faint: #7f8676;
+  --glass: rgba(20, 25, 20, 0.72);
+  --rule: rgba(214, 222, 196, 0.16);
+  --signal: #b9c98f;
+  --signal-dim: rgba(185, 201, 143, 0.14);
+  --signal-high: #d9a65a;
+  --trace-grid: rgba(214, 222, 196, 0.14);
+  --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, 'Liberation Mono', monospace;
+}
+
 html,
 body,
 #root {
@@ -7,8 +24,8 @@ body,
 body {
   margin: 0;
   font-family: system-ui, sans-serif;
-  background: #f6f4ef;
-  color: #1c1c1c;
+  background: #262c24;
+  color: var(--ink);
 }
 
 .app {
@@ -18,89 +35,341 @@ body {
 }
 
 .loading {
-  margin: 20vh auto 0;
+  margin: 0;
+  padding-top: 40vh;
   text-align: center;
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--ink-soft);
 }
 
-.timeline {
+/* ---- the panel ---- */
+
+.panel {
   position: absolute;
-  background: rgba(255, 255, 255, 0.92);
-  border-radius: 8px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  top: 16px;
+  left: 16px;
+  width: 300px;
+  max-height: calc(100% - 64px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 18px 18px 14px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(10px) saturate(0.8);
+  backdrop-filter: blur(10px) saturate(0.8);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
   font-size: 13px;
   line-height: 1.45;
-  top: 12px;
-  left: 12px;
-  width: 340px;
-  max-width: calc(100% - 24px);
-  padding: 12px 16px 10px;
-  box-sizing: border-box;
+  transition: border-color 2s ease, box-shadow 2s ease;
 }
 
-.project-title {
-  margin: 0 0 4px;
-  font-size: 15px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  color: #2f3a2c;
+.panel.level-confirmed {
+  border-color: rgba(217, 166, 90, 0.55);
+  box-shadow: 0 0 0 1px rgba(217, 166, 90, 0.18), 0 0 40px rgba(217, 166, 90, 0.12);
+  animation: breathe 3.2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% {
+    box-shadow: 0 0 0 1px rgba(217, 166, 90, 0.3), 0 0 60px rgba(217, 166, 90, 0.2);
+  }
+}
+
+.kicker,
+.label,
+.value,
+.readout,
+.focus,
+.hint,
+.sound button,
+.link {
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+}
+
+.kicker {
+  margin: 0 0 10px;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 23px;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .subtitle {
-  margin: 0 0 8px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: #6b6b66;
+  margin: 6px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--signal);
 }
 
-.timeline-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
+.intro {
+  margin: 12px 0 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-soft);
 }
 
-.year {
-  font-size: 22px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  color: #3b5f34;
-  white-space: nowrap;
-}
-
-.stage-title {
-  font-weight: 600;
-}
-
-.timeline input[type='range'] {
-  width: 100%;
-  margin: 10px 0 2px;
-  accent-color: #5d8a4c;
-}
-
-.ticks {
-  display: flex;
-  justify-content: space-between;
-}
-
-.ticks button {
+.link {
+  margin-left: 6px;
+  padding: 0;
   border: 0;
   background: none;
-  padding: 2px 4px;
-  font: inherit;
-  font-size: 12px;
-  color: #777;
+  font-size: 10px;
+  font-style: normal;
+  text-transform: uppercase;
+  color: var(--ink-faint);
   cursor: pointer;
+}
+
+.link:hover {
+  color: var(--ink);
+}
+
+/* ---- the meter ---- */
+
+.meter {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.meter-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.value {
+  font-size: 18px;
   font-variant-numeric: tabular-nums;
+  color: var(--signal);
+  transition: color 1.5s;
 }
 
-.ticks button.on {
-  color: #3b5f34;
-  font-weight: 650;
+.level-confirmed .value,
+.level-confirmed .label {
+  color: var(--signal-high);
 }
 
-.caption {
+.segments {
+  display: grid;
+  grid-template-columns: repeat(32, 1fr);
+  gap: 2px;
+  margin-top: 8px;
+  height: 10px;
+}
+
+.segments span {
+  background: var(--signal-dim);
+  transition: background 0.8s ease;
+}
+
+.segments span.on {
+  background: var(--signal);
+}
+
+.level-evading .segments span.on {
+  background: #c9c07f;
+}
+
+.level-confirmed .segments span.on {
+  background: var(--signal-high);
+}
+
+.trace {
+  display: block;
+  width: 100%;
+  height: 38px;
+  margin-top: 8px;
+}
+
+.readout {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+/* ---- state and events ---- */
+
+.status {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+
+.state {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.focus {
   margin: 6px 0 0;
-  color: #555;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+.event {
+  margin: 10px 0 0;
   min-height: 2.9em;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13.5px;
+  color: var(--signal);
+  opacity: 0;
+}
+
+.event.show {
+  animation: arrive 14s ease forwards;
+}
+
+@keyframes arrive {
+  0% {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  6%,
+  80% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0.35;
+  }
+}
+
+/* ---- sound ---- */
+
+.panel footer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+
+.sound {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sound button {
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: rgba(214, 222, 196, 0.05);
+  color: var(--ink);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.sound button:hover {
+  border-color: rgba(214, 222, 196, 0.4);
+}
+
+.sound-start .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--signal);
+  vertical-align: 1px;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.sound input[type='range'] {
+  flex: 1;
+  min-width: 80px;
+  accent-color: var(--signal);
+}
+
+.sound-note {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.hint {
+  margin: 10px 0 0;
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+/* ---- over the view ---- */
+
+.reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  margin: -20px 0 0 -20px;
+  pointer-events: none;
+}
+
+.reticle circle {
+  fill: none;
+  stroke-width: 1;
+}
+
+.reticle .track {
+  stroke: rgba(228, 230, 218, 0.18);
+}
+
+.reticle .fill {
+  stroke: rgba(228, 230, 218, 0.55);
+  transition: stroke-dashoffset 0.3s linear;
+}
+
+.reticle .pip {
+  fill: rgba(228, 230, 218, 0.5);
+}
+
+.reticle.level-confirmed .fill {
+  stroke: var(--signal-high);
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(18, 24, 16, 0.55) 100%);
+  transition: opacity 2s ease;
+}
+
+.vignette.level-confirmed {
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(40, 32, 14, 0.6) 100%);
 }
 
 .attribution {
@@ -108,9 +377,44 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 6px 12px;
-  font-size: 11px;
-  color: #444;
-  background: rgba(255, 255, 255, 0.85);
+  padding: 5px 16px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  background: linear-gradient(transparent, rgba(16, 20, 16, 0.7));
 }
 
+/* Small screens: the panel becomes a strip at the top, the introduction folds away. */
+@media (max-width: 640px) {
+  .panel {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: 46%;
+    padding: 12px 14px;
+  }
+  h1 {
+    font-size: 18px;
+  }
+  .intro,
+  .hint,
+  .kicker {
+    display: none;
+  }
+  .trace {
+    height: 26px;
+  }
+  .event:not(.show) {
+    display: none;
+  }
+  .meter,
+  .status,
+  .panel footer {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+  .attribution {
+    font-size: 9px;
+    padding: 4px 8px;
+  }
+}

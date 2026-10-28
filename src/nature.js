@@ -8,19 +8,12 @@ import * as THREE from 'three'
 
 const CELL_M = 2 // ground map resolution
 const MASS_STRIDE = 3 // vegetation mesh: one vertex every 3 cells (6 m)
+export const MASS_EDGE = 0.22 // how gradually a mass rises from its edge, in potential
 
-// The stages. `cover` is the share of open ground that is green; the rest are the strength
-// of each effect, 0 (none) to 1 (full). The last five (wild to mushrooms) only exist after
-// year 50: the new ecosystem of year 100.
-const LATE = { wild: 0, giants: 0, roots: 0, animals: 0, mushrooms: 0 }
-export const STAGES = [
-  { year: 0, title: 'Present-day Weimar', caption: 'The city as it stands today, with no added decay.', cover: 0, height: 0, decay: 0, climb: 0, roof: 0, trees: 0, ...LATE },
-  { year: 5, title: 'Initial abandonment', caption: 'Small green patches take open spaces, gardens and the edges of streets.', cover: 0.07, height: 0.3, decay: 0.12, climb: 0, roof: 0, trees: 0, ...LATE },
-  { year: 10, title: 'Expansion', caption: 'Green masses join across courtyards and streets and begin to surround buildings.', cover: 0.24, height: 0.5, decay: 0.3, climb: 0.25, roof: 0.15, trees: 0.45, ...LATE },
-  { year: 25, title: 'Encroachment', caption: 'Vegetation covers much of the ground and climbs the walls. The buildings turn grey and weathered.', cover: 0.55, height: 0.78, decay: 0.62, climb: 0.6, roof: 0.45, trees: 0.8, ...LATE },
-  { year: 50, title: 'Nature reclaims the city', caption: 'Connected green masses dominate. Streets are partly absorbed; the buildings remain, half covered.', cover: 0.8, height: 1, decay: 0.92, climb: 1, roof: 0.8, trees: 1, ...LATE },
-  { year: 100, title: 'A new ecosystem', caption: 'Giant trees tower over the roofs, roots split the streets, and animals roam the blocks the forest has taken.', cover: 0.93, height: 1, decay: 1, climb: 1.35, roof: 1, trees: 1.2, wild: 1, giants: 1, roots: 1, animals: 1, mushrooms: 1 },
-]
+// The permanent world: Weimar a hundred years after the last people left. These were the
+// year 100 values of the old timeline. `cover` is the share of open ground that is green;
+// the rest are strengths, 0 (none) to 1 (full).
+export const WORLD = { cover: 0.9, height: 1, decay: 1, climb: 1.35, roof: 1, trees: 1.2, wild: 1, giants: 1, roots: 1, animals: 1, mushrooms: 1 }
 
 // How readily each land use turns green.
 const LANDUSE_BASE = {
@@ -39,13 +32,17 @@ const NO_PLOT = 0.47 // street space and anything outside the plots
 
 // ---- deterministic noise ----
 
-function hash2(ix, iy, seed) {
+// Each building's own random number, 0..1. It decides how the building has aged: below 0.27
+// it kept its facade, above 0.77 the vegetation is consuming it (see the facade shader).
+export const buildingSeed = (i) => Math.abs(Math.sin(i * 12.9898 + 78.233) * 43758.5453) % 1
+
+export function hash2(ix, iy, seed) {
   let h = (ix * 374761393 + iy * 668265263 + seed * 2147483647) | 0
   h = Math.imul(h ^ (h >>> 13), 1274126177)
   return ((h ^ (h >>> 16)) >>> 0) / 4294967295
 }
 
-function valueNoise(x, y, seed) {
+export function valueNoise(x, y, seed) {
   const ix = Math.floor(x)
   const iy = Math.floor(y)
   const fx = x - ix
@@ -60,7 +57,7 @@ function valueNoise(x, y, seed) {
 }
 
 // Fractal noise in -1..1; `scale` is the size of the largest blobs in metres.
-function fbm(x, y, scale, seed, octaves = 4) {
+export function fbm(x, y, scale, seed, octaves = 4) {
   let sum = 0
   let amp = 0.5
   let norm = 0
@@ -248,8 +245,8 @@ export function buildNature(data, plots) {
     open.push(v)
   }
 
-  // Thresholds that give each stage its share of green ground.
-  const thresholds = STAGES.map((s) => (s.cover > 0 ? quantile(open, 1 - s.cover) : 2))
+  // The threshold that gives the world its share of green ground.
+  const threshold = quantile(open, 1 - WORLD.cover)
 
   // Ground map texture: R = potential, G = pavement, B = tone.
   const texture = new Uint8Array(N * 4)
@@ -280,17 +277,35 @@ export function buildNature(data, plots) {
       h *= 0.35 + 0.65 * smoothstep(5, 24, dB) // tall in open ground, lower in narrow courtyards
       h *= 1 - 0.65 * pavement[i] // low growth over streets
       if (base[i] === LANDUSE_BASE.recreation || base[i] === LANDUSE_BASE.cemetery) h *= 1.25
-      h += 5 * (1 - smoothstep(0, 8, dB)) * smoothstep(-0.2, 0.4, lift) // heaped against walls
-      // Inside a building the mass runs on, hidden by the walls, but stays below the roof,
-      // so it seems to lean against the building rather than pierce it.
-      if (building[i] >= 0) h = Math.min(Math.max(h, 3), data.buildings[building[i]].height * 0.75)
+      h *= 0.2 + 0.8 * smoothstep(1, 12, dB) // lower against the walls, so no steep sheets form there
       mass.height[k] = h
-      // Year 100: masses swell over whole blocks, and in places engulf the buildings, roof included.
-      if (building[i] < 0) mass.wild[k] = h * 1.6
-      else mass.wild[k] = fbm(x, y, 45, 23, 3) > 0.05 ? data.buildings[building[i]].height * 1.08 + 2 : h
+      mass.wild[k] = h * 1.15 + 2.5 * fbm(x, y, 9, 29, 2)
+      // No height inside a building: it would stretch sheets across the streets from the roofs.
+      // The overgrown buildings get their green from ivy and roofs instead (see the facades).
+      if (building[i] >= 0) {
+        mass.height[k] = 0
+        mass.wild[k] = 0
+      }
     }
+  // Inside a building the mass takes the potential of the open ground around it, so it slopes
+  // down gently into the wall (hidden by it) instead of dropping off a cliff at the wall's foot.
+  const inside = (k) => building[Math.floor(k / MW) * MASS_STRIDE * W + (k % MW) * MASS_STRIDE] >= 0
+  const pot = Float32Array.from(mass.potential)
+  for (let k = 0; k < MW * MH; k++) {
+    if (!inside(k)) continue
+    const [r, c] = [Math.floor(k / MW), k % MW]
+    let [sum, n] = [0, 0]
+    for (let dr = -2; dr <= 2; dr++)
+      for (let dc = -2; dc <= 2; dc++) {
+        const [rr, cc] = [r + dr, c + dc]
+        if (rr < 0 || rr >= MH || cc < 0 || cc >= MW) continue
+        const j = rr * MW + cc
+        if (!inside(j)) (sum += pot[j]), n++
+      }
+    mass.potential[k] = n ? sum / n : -1
+  }
 
-  // Soften the year 100 heights a little, so the engulfing masses swell rather than splinter.
+  // Soften the heights a little, so the masses swell rather than splinter.
   const w = Float32Array.from(mass.wild)
   for (let r = 1; r < MH - 1; r++)
     for (let c = 1; c < MW - 1; c++) {
@@ -298,6 +313,45 @@ export function buildNature(data, plots) {
       for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) sum += w[(r + dr) * MW + c + dc]
       mass.wild[r * MW + c] = 0.5 * w[r * MW + c] + 0.5 * (sum / 9)
     }
+
+  // Limit the slope: no point of the mass may stand more than SLOPE m higher per metre than its
+  // neighbours, counting bare ground as 0. Without this a mass can go from nothing to 20 m within
+  // one 6 m step, a cliff too steep to light; hiding those cliffs left holes. With it, every
+  // edge is a continuous bank. The heights are the ones the shader computes for the fixed world.
+  const SLOPE = 1.0
+  const step = CELL_M * MASS_STRIDE
+  const rest = new Float32Array(MW * MH)
+  for (let k = 0; k < MW * MH; k++) {
+    const g = Math.min(Math.max((mass.potential[k] - threshold) / MASS_EDGE, 0), 1)
+    const hk = mass.height[k] + (mass.wild[k] - mass.height[k]) * WORLD.wild
+    rest[k] = g > 0 ? Math.max(hk, 0) * WORLD.height * (0.08 + 0.92 * g * g * (3 - 2 * g)) : 0
+  }
+  const cap = Float32Array.from(rest)
+  const NB = [[-1, -1], [-1, 0], [-1, 1], [0, -1]].map(([dr, dc]) => [dr, dc, Math.hypot(dr, dc) * step * SLOPE])
+  for (let pass = 0; pass < 2; pass++) {
+    for (let r = 0; r < MH; r++)
+      for (let c = 0; c < MW; c++) {
+        const k = r * MW + c
+        for (const [dr, dc, d] of NB) {
+          const [rr, cc] = [r + dr, c + dc]
+          if (rr >= 0 && cc >= 0 && cc < MW) cap[k] = Math.min(cap[k], cap[rr * MW + cc] + d)
+        }
+      }
+    for (let r = MH - 1; r >= 0; r--)
+      for (let c = MW - 1; c >= 0; c--) {
+        const k = r * MW + c
+        for (const [dr, dc, d] of NB) {
+          const [rr, cc] = [r - dr, c - dc]
+          if (rr < MH && cc >= 0 && cc < MW) cap[k] = Math.min(cap[k], cap[rr * MW + cc] + d)
+        }
+      }
+  }
+  for (let k = 0; k < MW * MH; k++) {
+    if (rest[k] <= 0 || cap[k] >= rest[k]) continue
+    const f = cap[k] / rest[k]
+    mass.height[k] *= f
+    mass.wild[k] *= f
+  }
 
   // A few distinctive trees, rising from the tallest, earliest masses. At least 34 m apart.
   const trees = []
@@ -330,18 +384,60 @@ export function buildNature(data, plots) {
       })
     }
 
-  const wild = buildWild({ data, grid, p, smooth, pavement, building, toBuilding, open, thresholds, trees, cx, cy, mass })
+  // Trees in the city itself: in courtyards, close to the facades, and here and there in a street.
+  const urbanTrees = []
+  const bucket = new Set()
+  for (let r = 3; r < H - 3; r += 3)
+    for (let c = 3; c < W - 3; c += 3) {
+      const i = r * W + c
+      if (building[i] >= 0 || p[i] < threshold) continue
+      const dB = toBuilding[i] * CELL_M
+      const inStreet = pavement[i] > 0.5
+      const chance = inStreet ? 0.035 : dB < 11 ? 0.2 : 0.07
+      if (dB < 2.5 || hash2(c, r, 401) > chance) continue
+      const x = cx(i)
+      const y = cy(i)
+      const [gx, gy] = [Math.floor(x / 10), Math.floor(y / 10)]
+      if (bucket.has(gx + ',' + gy) || bucket.has(gx - 1 + ',' + gy) || bucket.has(gx + ',' + (gy - 1))) continue
+      bucket.add(gx + ',' + gy)
+      // Lean away from the nearest wall, toward the light.
+      const gxB = toBuilding[i + 1] - toBuilding[i - 1]
+      const gyB = toBuilding[i + W] - toBuilding[i - W]
+      const gl = Math.hypot(gxB, gyB) || 1
+      const lean = dB < 9 ? 0.12 * (1 - dB / 9) : 0
+      const h = (s) => hash2(c, r, s)
+      urbanTrees.push({ x, y, height: (inStreet ? 9 : 11) + 13 * h(409) + Math.min(dB, 12) * 0.4, width: 0.75 + 0.5 * h(419), turn: h(421) * Math.PI * 2, variant: Math.floor(h(431) * 6), lean: [(gxB / gl) * lean, (gyB / gl) * lean], tone: h(433), roots: h(439) < (dB < 8 ? 0.55 : 0.25) })
+      if (urbanTrees.length >= 1100) break
+    }
+
+  const wild = buildWild({ data, grid, p, smooth, pavement, building, toBuilding, open, threshold, trees, urbanTrees, cx, cy, mass })
 
   const groundMap = new THREE.DataTexture(texture, W, H, THREE.RGBAFormat)
   groundMap.magFilter = groundMap.minFilter = THREE.LinearFilter
   groundMap.needsUpdate = true
 
-  return { grid: { x0, y0, W, H, cell: CELL_M }, groundMap, thresholds, mass, trees, ...wild, sample: (x, y) => sampleP(p, grid, x, y) }
+  // Which building stands on a spot (its index), or -1. The entity uses it to know what you look at.
+  const buildingAt = (x, y) => {
+    const c = Math.floor((x - x0) / CELL_M)
+    const r = Math.floor((y - y0) / CELL_M)
+    return c >= 0 && c < W && r >= 0 && r < H ? building[r * W + c] : -1
+  }
+  // The top of the vegetation mass near a spot, in metres (0 where there is none).
+  const massTop = (x, y) => {
+    const c = Math.round((x - x0) / CELL_M / MASS_STRIDE)
+    const r = Math.round((y - y0) / CELL_M / MASS_STRIDE)
+    if (c < 0 || c >= MW || r < 0 || r >= MH) return 0
+    const k = r * MW + c
+    const g = Math.min(Math.max((mass.potential[k] - threshold) / MASS_EDGE, 0), 1)
+    return g > 0 ? mass.wild[k] * WORLD.height * (0.08 + 0.92 * smoothstep(0, 1, g)) : 0
+  }
+
+  return { grid: { x0, y0, W, H, cell: CELL_M }, groundMap, threshold, mass, trees, urbanTrees, ...wild, buildingAt, massTop, sample: (x, y) => sampleP(p, grid, x, y) }
 }
 
 // ---- year 100: giant trees, roots, mushrooms and animals, placed once and deterministically ----
 
-function buildWild({ grid, p, pavement, building, toBuilding, open, thresholds, trees, cx, cy, mass }) {
+function buildWild({ grid, p, pavement, building, toBuilding, open, threshold, trees, urbanTrees, cx, cy, mass }) {
   const { x0, y0, W, H } = grid
   const cellOf = (x, y) => {
     const c = Math.floor((x - x0) / CELL_M)
@@ -353,7 +449,7 @@ function buildWild({ grid, p, pavement, building, toBuilding, open, thresholds, 
     return i < 0 || building[i] >= 0
   }
   // Is the ground here free of vegetation mass in year 100? (So an animal standing here is seen.)
-  const T100 = thresholds[thresholds.length - 1]
+  const T100 = threshold
   const clearing = (x, y) => {
     const c = Math.round((x - x0) / CELL_M / MASS_STRIDE)
     const r = Math.round((y - y0) / CELL_M / MASS_STRIDE)
@@ -384,17 +480,34 @@ function buildWild({ grid, p, pavement, building, toBuilding, open, thresholds, 
     if (giants.length >= 16) break
   }
 
-  // Roots: random walks along the ground that slide along walls when they meet a building.
+  // Roots: random walks along the ground that slide along walls when they meet a building,
+  // and sometimes climb them. Each point is [x, y, h], h the height above the ground.
+  // Main roots fork into thinner side roots.
   const roots = []
-  const grow = (x, y, angle, length, step, radius, seed, delay) => {
-    const pts = [[x, y]]
+  const grow = (x, y, angle, length, step, radius, seed, delay, depth = 0) => {
+    const pts = [[x, y, 0]]
     let a = angle
     const turn = seed % 2 ? 0.45 : -0.45 // each root keeps turning one way along a wall
+    const climber = hash2(seed, 7, 301) < (depth ? 0.25 : 0.4)
     for (let d = step; d <= length; d += step) {
-      a += valueNoise(d * 0.09, seed, 91) * 0.13 // meander, but keep heading outward
+      a += valueNoise(d * 0.09, seed, 91) * 0.16 // meander, but keep heading outward
       let tries = 0
       let nx = x + Math.cos(a) * step
       let ny = y + Math.sin(a) * step
+      if (blocked(nx, ny) && climber) {
+        // Up the wall it met: a few metres, wandering sideways along the facade.
+        const top = (depth ? 2 : 3) + 7 * hash2(seed, 9, 303)
+        const side = a + Math.PI / 2
+        let hgt = 0
+        for (let k = 1; hgt < top; k++) {
+          hgt += step * 0.7
+          const w = valueNoise(k * 0.35, seed, 307) * 0.6
+          x += Math.cos(side) * w
+          y += Math.sin(side) * w
+          pts.push([x, y, hgt])
+        }
+        break
+      }
       while (blocked(nx, ny) && tries++ < 8) {
         a += turn
         nx = x + Math.cos(a) * step
@@ -402,23 +515,37 @@ function buildWild({ grid, p, pavement, building, toBuilding, open, thresholds, 
       }
       if (tries >= 8) break
       ;[x, y] = [nx, ny]
-      pts.push([x, y])
+      pts.push([x, y, 0])
+      const dk = Math.round(d * 10)
+      if (depth === 0 && d > length * 0.15 && d < length * 0.8 && hash2(seed, dk, 311) < 0.07) {
+        const fork = hash2(seed, dk, 313) < 0.5 ? -1 : 1
+        const rest = (length - d) * (0.35 + 0.3 * hash2(seed, dk, 317))
+        grow(x, y, a + fork * (0.6 + 0.6 * hash2(seed, dk, 319)), rest, step, radius * (1 - d / length) * 0.6 + 0.15, seed * 13 + dk, delay, 1)
+      }
     }
-    if (pts.length > 2) roots.push({ pts, radius, delay })
+    if (pts.length > 2) roots.push({ pts, radius, delay, seed })
   }
   giants.forEach((g, gi) => {
     const count = 7 + Math.floor(hash2(gi, 3, 101) * 4)
     for (let k = 0; k < count; k++) {
       const a = g.turn + (k / count) * Math.PI * 2 + hash2(gi, k, 103) * 0.5
       const start = g.trunk * 0.8
-      grow(g.x + Math.cos(a) * start, g.y + Math.sin(a) * start, a, 70 + 100 * hash2(gi, k, 107), 3, 2 + 1.4 * hash2(gi, k, 109), gi * 31 + k, g.order)
+      grow(g.x + Math.cos(a) * start, g.y + Math.sin(a) * start, a, 70 + 100 * hash2(gi, k, 107), 3, (1.5 + 1.1 * hash2(gi, k, 109)) * (0.6 + 0.7 * hash2(gi, k, 111)), gi * 31 + k, g.order)
     }
   })
   trees.forEach((t, ti) => {
     if (hash2(ti, 5, 113) > 0.6) return
     for (let k = 0; k < 3; k++) {
-      const a = t.turn + (k / 3) * Math.PI * 2
-      grow(t.x, t.y, a, 16 + 26 * hash2(ti, k, 127), 2.5, 0.7 + 0.4 * hash2(ti, k, 131), 5000 + ti * 7 + k, 0.3 + 0.5 * hash2(ti, k, 137))
+      const a = t.turn + (k / 3) * Math.PI * 2 + hash2(ti, k, 117)
+      grow(t.x, t.y, a, 16 + 26 * hash2(ti, k, 127), 2.5, 0.7 + 0.5 * hash2(ti, k, 131), 5000 + ti * 7 + k, 0.3 + 0.5 * hash2(ti, k, 137))
+    }
+  })
+  urbanTrees.forEach((t, ti) => {
+    if (!t.roots) return
+    const n = 2 + Math.floor(hash2(ti, 2, 141) * 2)
+    for (let k = 0; k < n; k++) {
+      const a = t.turn + (k / n) * Math.PI * 2 + hash2(ti, k, 143)
+      grow(t.x, t.y, a, 6 + 12 * hash2(ti, k, 147), 1.5, 0.3 + 0.35 * hash2(ti, k, 149), 20000 + ti * 5 + k, 0)
     }
   })
 
@@ -474,15 +601,4 @@ function sampleP(p, { x0, y0, W, H }, x, y) {
   const c = Math.floor((x - x0) / CELL_M)
   const r = Math.floor((y - y0) / CELL_M)
   return c >= 0 && c < W && r >= 0 && r < H ? p[r * W + c] : -1
-}
-
-// The look at a point on the slider (0 to 5, fractional while it moves), interpolated between stages.
-export function stageAt(s, thresholds) {
-  const k = Math.min(Math.floor(s), STAGES.length - 2)
-  const t = Math.min(Math.max(s - k, 0), 1)
-  const mix = (a, b) => a + (b - a) * t
-  const [a, b] = [STAGES[k], STAGES[k + 1]]
-  const out = { threshold: mix(thresholds[k], thresholds[k + 1]) }
-  for (const key of ['height', 'decay', 'climb', 'roof', 'trees', 'wild', 'giants', 'roots', 'animals', 'mushrooms']) out[key] = mix(a[key], b[key])
-  return out
 }
